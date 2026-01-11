@@ -1,6 +1,10 @@
 # Bitcoin 15min Arbitrage Bot - Polymarket
 
-Simple arbitrage bot implementing **Jeremy Whittaker's strategy** for Bitcoin 15-minute markets on Polymarket.
+Professional arbitrage bot implementing **Jeremy Whittaker's strategy** for Bitcoin 15-minute markets on Polymarket.
+
+> 🆕 **Enhanced Version**: This bot has been significantly improved with professional features including statistics tracking, risk management, enhanced logging, and configuration validation. See [CHANGELOG.md](CHANGELOG.md) for details. **100% backward compatible** - all new features are optional.
+
+> 📚 **New to the bot?** Check out the [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for a quick start guide!
 
 ## 🎯 Strategy
 
@@ -92,12 +96,31 @@ If you use **email login** on Polymarket (Magic.link), you have **two addresses*
 
 | Variable | Description | Default | Recommended |
 |----------|-------------|---------|-------------|
-| `TARGET_PAIR_COST` | Maximum combined cost to trigger arbitrage | `0.991` | `0.99` - `0.995` |
-| `ORDER_SIZE` | Number of shares per trade (minimum is 5) | `5` | Start with `5`, increase after testing |
+| `TARGET_PAIR_COST` | Maximum combined cost to trigger arbitrage | `0.99` | `0.99` - `0.995` |
+| `ORDER_SIZE` | Number of shares per trade (minimum is 5) | `50` | Start with `5`, increase after testing |
 | `ORDER_TYPE` | Order time-in-force (`FOK`, `FAK`, `GTC`) | `FOK` | Use `FOK` to avoid leaving one leg open |
-| `DRY_RUN` | Simulation mode | `true` | Start with `true`, change to `false` for live trading |
+| `DRY_RUN` | Simulation mode | `false` | Start with `true`, change to `false` for live trading |
 | `SIM_BALANCE` | Starting cash used in simulation mode (`DRY_RUN=true`) | `0` | e.g. `100` |
 | `COOLDOWN_SECONDS` | Minimum seconds between executions | `10` | Increase if you see repeated triggers |
+
+### Risk Management (New) ⚡
+
+| Variable | Description | Default | Recommended |
+|----------|-------------|---------|-------------|
+| `MAX_DAILY_LOSS` | Maximum loss per day in USDC (0 = disabled) | `0` | e.g. `50.0` to limit daily losses |
+| `MAX_POSITION_SIZE` | Maximum position size in USDC per trade (0 = disabled) | `0` | e.g. `100.0` to cap trade sizes |
+| `MAX_TRADES_PER_DAY` | Maximum number of trades per day (0 = disabled) | `0` | e.g. `20` to limit trading frequency |
+| `MIN_BALANCE_REQUIRED` | Minimum balance required to continue trading | `10.0` | Adjust based on your risk tolerance |
+| `MAX_BALANCE_UTILIZATION` | Maximum % of balance to use per trade (0.8 = 80%) | `0.8` | Lower = more conservative |
+
+### Statistics & Logging (New) 📊
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ENABLE_STATS` | Enable statistics tracking and trade history | `true` |
+| `TRADE_LOG_FILE` | Path to trade history JSON file | `trades.json` |
+| `USE_RICH_OUTPUT` | Use rich console formatting (requires `rich` package) | `true` |
+| `VERBOSE` | Enable verbose (DEBUG) logging | `false` |
 
 ### Optional
 
@@ -280,17 +303,27 @@ Important:
 
 ## 📊 Features
 
+### Core Features
 ✅ **Auto-discovers** active BTC 15min market  
 ✅ **Detects opportunities** when price_up + price_down < threshold  
 ✅ **Execution-aware pricing**: uses order book asks (not last trade price)  
-✅ **Depth-aware sizing**: walks the ask book to ensure `ORDER_SIZE` can fill (uses a conservative “worst fill” price)  
+✅ **Depth-aware sizing**: walks the ask book to ensure `ORDER_SIZE` can fill (uses a conservative "worst fill" price)  
 ✅ **Continuous scanning** with no delays (maximum speed)  
 ✅ **Lower latency polling**: fetches UP/DOWN order books concurrently  
 ✅ **Auto-switches** to next market when current one closes  
 ✅ **Final summary** with total investment, profit and market result  
 ✅ **Simulation mode** for risk-free testing  
 ✅ **Balance verification** before executing trades  
-✅ **Paired execution verification**: confirms both legs filled (otherwise cancels + attempts to unwind)  
+✅ **Paired execution verification**: confirms both legs filled (otherwise cancels + attempts to unwind)
+
+### Enhanced Features (New) ⚡
+✅ **Statistics Tracking**: Comprehensive trade history and performance metrics  
+✅ **Risk Management**: Daily loss limits, position size limits, trade frequency controls  
+✅ **Configuration Validation**: Validates settings before startup with helpful error messages  
+✅ **Enhanced Logging**: Rich console output with colors and better formatting (optional)  
+✅ **Graceful Shutdown**: Clean shutdown with statistics saving  
+✅ **Trade History Export**: Export trade data to JSON and CSV formats  
+✅ **Performance Analytics**: Win rate, average profit, and detailed statistics  
 
 ---
 
@@ -337,6 +370,16 @@ Total shares bought:           30
 Total invested:                $14.85
 Expected payout at close:      $15.00
 Expected profit:               $0.15 (1.01%)
+----------------------------------------------------------------------
+📊 OVERALL STATISTICS:
+  Total trades:                 3
+  Win rate:                     100.0%
+  Average profit per trade:     $0.05
+  Average profit %:             1.01%
+----------------------------------------------------------------------
+⚠️ RISK MANAGEMENT:
+  Daily trades:                 3
+  Daily net P&L:                $0.15
 ======================================================================
 ```
 
@@ -349,16 +392,30 @@ Bot/
 ├── src/
 │   ├── simple_arb_bot.py    # Main arbitrage bot
 │   ├── config.py            # Configuration loader
+│   ├── config_validator.py  # Configuration validation (NEW)
 │   ├── lookup.py            # Market ID fetcher
 │   ├── trading.py           # Order execution
+│   ├── statistics.py        # Statistics tracking (NEW)
+│   ├── risk_manager.py      # Risk management (NEW)
+│   ├── logger.py            # Enhanced logging (NEW)
+│   ├── utils.py             # Utility functions (NEW)
+│   ├── wss_market.py        # WebSocket market client
 │   ├── generate_api_key.py  # API key generator utility
+│   ├── diagnose_config.py   # Configuration diagnostic tool
 │   └── test_balance.py      # Balance verification utility
 ├── tests/
 │   └── test_state.py        # Unit tests
 ├── .env                     # Environment variables (create from .env.example)
-├── .env.example             # Environment template
+├── .env.example             # Environment template (if available)
 ├── requirements.txt         # Dependencies
-└── README.md                # This file
+├── README.md                # This file
+├── CHANGELOG.md             # Detailed changelog
+└── docs/                    # Documentation folder
+    ├── README.md            # Documentation index
+    ├── GETTING_STARTED.md   # Quick start guide
+    ├── CONFIGURATION.md     # Configuration guide
+    ├── FEATURES.md          # Features guide
+    └── TROUBLESHOOTING.md   # Troubleshooting guide
 ```
 
 ---
@@ -376,41 +433,92 @@ Bot/
 
 ## 🔧 Troubleshooting
 
+### Configuration Validation
+
+The bot now validates your configuration before starting. If you see validation errors:
+- Check the error messages for specific issues
+- Verify your `.env` file format
+- Ensure all required fields are set
+- Run `python -m src.diagnose_config` for detailed diagnostics
+
 ### "Invalid signature" error
 - Verify `POLYMARKET_SIGNATURE_TYPE` matches your wallet type
 - Regenerate API credentials with `python -m src.generate_api_key`
+- For Magic.link users: ensure `POLYMARKET_FUNDER` is set correctly
+- Run `python -m src.diagnose_config` for detailed diagnostics
 
 ### Balance shows $0 but I have funds
 - Check that your private key corresponds to the wallet with funds
 - For Magic.link: the private key is for your EOA, not the proxy wallet
 - Run `python -m src.test_balance` to see your wallet address
+- Verify `POLYMARKET_FUNDER` is set for Magic.link accounts
 
 ### "No active BTC 15min market found"
 - Markets open every 15 minutes; wait for the next one
 - Check your internet connection
 - Try visiting https://polymarket.com/crypto/15M manually
 
+### Trade blocked by risk management
+- Check your risk management settings (MAX_DAILY_LOSS, MAX_POSITION_SIZE, etc.)
+- Review the risk management stats in the final summary
+- Adjust limits if needed (set to 0 to disable)
+
+### Statistics not showing
+- Ensure `ENABLE_STATS=true` in your `.env` file
+- Check that `TRADE_LOG_FILE` is writable
+- Verify you have write permissions in the bot directory
+
 ---
 
-## 📚 Resources
+## 📚 Resources & Documentation
 
+### Documentation
+- **[docs/README.md](docs/README.md)** - Documentation index and navigation
+- **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)** - Quick start guide (5 minutes)
+- **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** - Complete configuration guide
+- **[docs/FEATURES.md](docs/FEATURES.md)** - Detailed feature explanations
+- **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[CHANGELOG.md](CHANGELOG.md)** - Detailed changelog of all improvements
+
+### External Resources
 - [Jeremy Whittaker's original article](https://jeremywhittaker.com/index.php/2024/09/24/arbitrage-in-polymarket-com/)
 - [Polymarket](https://polymarket.com/)
 - [BTC 15min Markets](https://polymarket.com/crypto/15M)
 - [py-clob-client documentation](https://github.com/Polymarket/py-clob-client)
 
+### Utilities
+- `python -m src.generate_api_key` - Generate API credentials
+- `python -m src.test_balance` - Verify wallet configuration and balance
+- `python -m src.diagnose_config` - Diagnose configuration issues
+
 ---
 
-## 💰 Donations
 
-If you find this project helpful, consider supporting me with a donation:
+## 🆕 What's New?
 
-- **Bitcoin**: bc1q7g34820ja90aeltmlkc7va04eqk7u0z7830hdt
-- **Ethereum**: 0x2536eF5E8613dec01b7919A6a7933053da027414
-- **PayPal**: https://www.paypal.me/jonmarcos17 
+This bot has been significantly enhanced with professional features:
+
+- **Statistics Tracking**: Track all trades, performance metrics, and export data
+- **Risk Management**: Configure daily limits, position sizes, and trade frequency
+- **Enhanced Logging**: Rich console output with better formatting
+- **Configuration Validation**: Catch configuration errors before trading
+- **Graceful Shutdown**: Clean shutdown with data preservation
+- **Better Documentation**: Comprehensive beginner's guide and detailed docs
+
+All new features are **optional** and the bot is **100% backward compatible**. See [CHANGELOG.md](CHANGELOG.md) for details.
+
+---
+
+## 📞 Contact & Support
+
+For questions, issues, or suggestions:
+
+- **Telegram**: [@terauss](https://t.me/terauss)
 
 ---
 
 ## ⚖️ Disclaimer
 
 This software is for educational purposes only. Trading involves risk. I am not responsible for financial losses. Always do your own research and never invest more than you can afford to lose.
+
+**Risk Management Features**: While the bot includes risk management tools, these are not guarantees against losses. Always monitor your trades and set appropriate limits based on your risk tolerance.
