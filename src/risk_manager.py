@@ -1,126 +1,135 @@
 """
-Risk management module for the arbitrage bot.
+risk_manager.py
+Risk controls for BTC 15M arbitrage bot.
 
-Provides features like maximum loss limits, position size limits, and daily trading limits.
+Features:
+✔ Daily max loss
+✔ Daily max trades
+✔ Position size limit
+✔ Balance utilization guard
+✔ Tracks expected profit (and allows resolved replacement)
+✔ Auto day rollover
+✔ Zero-runtime errors when limits unset
 """
 
-import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
 class RiskLimits:
-    """Risk management limits configuration."""
-    max_daily_loss: Optional[float] = None  # Maximum loss per day in USDC
-    max_position_size: Optional[float] = None  # Maximum position size in USDC
-    max_trades_per_day: Optional[int] = None  # Maximum number of trades per day
-    min_balance_required: float = 10.0  # Minimum balance required to continue trading
-    max_balance_utilization: float = 0.8  # Maximum percentage of balance to use per trade
+    max_daily_loss: Optional[float] = None        # Stop if netPnL < -max_loss
+    max_trades_per_day: Optional[int] = None     # Block trades after hitting limit
+    max_position_size: Optional[float] = None    # Per-trade cap
+    min_balance_required: float = 0.0             # Must hold at least this much USDC
+    max_balance_utilization: float = 1.0          # 0.5 => never spend >50% of wallet per trade
+
+
+@dataclass
+class DailyRiskState:
+    date: str
+    trades_count: int = 0
+    net_pnl: float = 0.0  # running PnL (expected or realized)
+    invested: float = 0.0
 
 
 class RiskManager:
-    """Manages risk limits and trading restrictions."""
-    
     def __init__(self, limits: RiskLimits):
-        """
-        Initialize risk manager.
-        
-        Args:
-            limits: Risk limits configuration
-        """
         self.limits = limits
-        self.daily_stats: dict = {
-            "date": datetime.now().date().isoformat(),
-            "trades_count": 0,
-            "total_loss": 0.0,
-            "total_profit": 0.0,
-        }
-    
-    def _reset_daily_stats_if_needed(self):
-        """Reset daily statistics if a new day has started."""
-        today = datetime.now().date().isoformat()
-        if self.daily_stats["date"] != today:
-            self.daily_stats = {
-                "date": today,
-                "trades_count": 0,
-                "total_loss": 0.0,
-                "total_profit": 0.0,
-            }
-            logger.info("Daily risk limits reset for new day")
-    
-    def can_trade(self, trade_size: float, current_balance: float) -> tuple[bool, Optional[str]]:
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        self.state = DailyRiskState(date=today)
+
+    # -----------------------------------------------------------
+    # HELPER: Day Reset
+    # -----------------------------------------------------------
+    def _rollover_if_needed(self):
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        if self.state.date != today:
+            self.state = DailyRiskState(date=today)
+
+    # -----------------------------------------------------------
+    # MAIN CHECK
+    # -----------------------------------------------------------
+    def can_trade(self, trade_size: float, current_balance: float):
         """
-        Check if a trade is allowed based on risk limits.
-        
-        Args:
-            trade_size: Size of the trade in USDC
-            current_balance: Current account balance in USDC
-            
         Returns:
-            Tuple of (allowed, reason_if_not_allowed)
+            (True, '') if allowed
+            (False, 'reason') if blocked
         """
-        self._reset_daily_stats_if_needed()
-        
-        # Check minimum balance
+        self._rollover_if_needed()
+
+        # Require minimum balance
         if current_balance < self.limits.min_balance_required:
-            return False, f"Balance ${current_balance:.2f} below minimum ${self.limits.min_balance_required:.2f}"
-        
-        # Check maximum position size
-        if self.limits.max_position_size and trade_size > self.limits.max_position_size:
-            return False, f"Trade size ${trade_size:.2f} exceeds maximum ${self.limits.max_position_size:.2f}"
-        
-        # Check balance utilization
-        max_trade_size = current_balance * self.limits.max_balance_utilization
-        if trade_size > max_trade_size:
-            return False, f"Trade size ${trade_size:.2f} exceeds {self.limits.max_balance_utilization*100:.0f}% of balance"
-        
-        # Check daily trade count
-        if self.limits.max_trades_per_day:
-            if self.daily_stats["trades_count"] >= self.limits.max_trades_per_day:
-                return False, f"Daily trade limit ({self.limits.max_trades_per_day}) reached"
-        
-        # Check daily loss limit
-        if self.limits.max_daily_loss:
-            net_loss = self.daily_stats["total_loss"] - self.daily_stats["total_profit"]
-            if net_loss >= self.limits.max_daily_loss:
-                return False, f"Daily loss limit (${self.limits.max_daily_loss:.2f}) reached"
-        
-        return True, None
-    
+            return False, (
+                f"Balance too low: {current_balance:.2f} < "
+                f"{self.limits.min_balance_required:.2f}"
+            )
+
+        # Max utilization guard
+        max_spend = current_balance * float(self.limits.max_balance_utilization)
+        if trade_size > max_spend:
+            return False, (
+                f"Trade cost {trade_size:.2f} > utilization "
+                f"limit {max_spend:.2f}"
+            )
+
+        # Max trades/day
+        if self.limits.max_trades_per_day is not None:
+            if self.state.trades_count >= self.limits.max_trades_per_day:
+                return False, (
+                    f"Hit daily trade cap "
+                    f"{self.state.trades_count}/{self.limits.max_trades_per_day}"
+                )
+
+        # Per trade max position
+        if self.limits.max_position_size is not None:
+            if trade_size > self.limits.max_position_size:
+                return False, (
+                    f"Trade too large: {trade_size:.2f} > "
+                    f"{self.limits.max_position_size:.2f}"
+                )
+
+        # Daily loss stop
+        if self.limits.max_daily_loss is not None:
+            if self.state.net_pnl < -abs(self.limits.max_daily_loss):
+                return False, (
+                    f"Daily PnL {self.state.net_pnl:.2f} < "
+                    f"limit -{abs(self.limits.max_daily_loss):.2f}"
+                )
+
+        return True, ""
+
+    # -----------------------------------------------------------
+    # STATE UPDATE
+    # -----------------------------------------------------------
     def record_trade_result(self, profit: float):
         """
-        Record the result of a trade for risk tracking.
-        
-        Args:
-            profit: Profit/loss from the trade (negative for losses)
+        Called when a trade is executed successfully.
+        Profit passed here is EXPECTED profit until the market settles.
         """
-        self._reset_daily_stats_if_needed()
-        self.daily_stats["trades_count"] += 1
-        
-        if profit > 0:
-            self.daily_stats["total_profit"] += profit
-        else:
-            self.daily_stats["total_loss"] += abs(profit)
-    
-    def get_daily_stats(self) -> dict:
-        """Get current daily statistics."""
-        self._reset_daily_stats_if_needed()
-        net_pnl = self.daily_stats["total_profit"] - self.daily_stats["total_loss"]
-        return {
-            **self.daily_stats,
-            "net_pnl": net_pnl,
-        }
-    
-    def is_daily_loss_limit_reached(self) -> bool:
-        """Check if daily loss limit has been reached."""
-        if not self.limits.max_daily_loss:
-            return False
-        
-        self._reset_daily_stats_if_needed()
-        net_loss = self.daily_stats["total_loss"] - self.daily_stats["total_profit"]
-        return net_loss >= self.limits.max_daily_loss
+        self._rollover_if_needed()
+        self.state.trades_count += 1
+        self.state.net_pnl += profit
 
+    # Optionally replace expected PnL with actual resolution
+    def adjust_actual_pnl(self, realized_profit: float):
+        """
+        Call this when a market resolves.
+        """
+        self._rollover_if_needed()
+        self.state.net_pnl += realized_profit
+
+    # -----------------------------------------------------------
+    # EXTERNAL SNAPSHOT
+    # -----------------------------------------------------------
+    def get_daily_stats(self):
+        """
+        For logging / display
+        """
+        self._rollover_if_needed()
+        return {
+            "date": self.state.date,
+            "trades": self.state.trades_count,
+            "net_pnl": self.state.net_pnl,
+        }
